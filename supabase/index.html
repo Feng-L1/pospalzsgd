@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>工单登记处理系统</title>
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Microsoft YaHei', Arial, sans-serif; background: #f5f5f5; display: flex; min-height: 100vh; }
+        .sidebar { width: 200px; background: #1890ff; color: white; padding: 20px 0; flex-shrink: 0; }
+        .sidebar h1 { font-size: 18px; text-align: center; margin-bottom: 30px; padding: 0 20px; }
+        .nav { display: flex; flex-direction: column; gap: 10px; padding: 0 20px; }
+        .nav button { padding: 12px 16px; border: none; background: rgba(255,255,255,0.2); color: white; border-radius: 4px; cursor: pointer; font-size: 14px; text-align: left; transition: all 0.3s; }
+        .nav button:hover, .nav button.active { background: rgba(255,255,255,0.4); }
+        .container { flex: 1; padding: 20px; overflow-y: auto; }
+        .path-selector { margin-bottom: 20px; padding: 16px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .path-selector h2 { font-size: 16px; margin-bottom: 12px; color: #333; }
+        .path-buttons { display: flex; gap: 12px; }
+        .path-buttons button { padding: 8px 16px; border: 1px solid #1890ff; background: white; color: #1890ff; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .path-buttons button.active { background: #1890ff; color: white; }
+        .panel { display: none; background: white; border-radius: 8px; padding: 24px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .panel.active { display: block; }
+        .panel h2 { color: #333; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #1890ff; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #666; font-weight: 500; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+        .form-group textarea { min-height: 80px; resize: vertical; }
+        .btn { padding: 10px 24px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .btn-primary { background: #1890ff; color: white; }
+        .btn-primary:hover { background: #40a9ff; }
+        .btn-success { background: #52c41a; color: white; }
+        .btn-success:hover { background: #73d13d; }
+        .order-list { margin-top: 20px; }
+        .order-item { border: 1px solid #e8e8e8; border-radius: 4px; padding: 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .order-item:hover { border-color: #1890ff; }
+        .order-header { display: flex; justify-content: space-between; align-items: flex-start; }
+        .order-left { flex: 1; }
+        .order-right { display: flex; align-items: center; gap: 12px; }
+        .order-title { font-size: 16px; font-weight: 500; color: #333; }
+        .order-id { font-size: 12px; color: #999; margin-top: 2px; }
+        .order-info { font-size: 14px; color: #666; }
+        .order-desc { font-size: 14px; color: #333; padding: 8px; background: #fafafa; border-radius: 4px; flex: 1; }
+        .order-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+        .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 12px; }
+        .status-pending { background: #fffbe6; color: #faad14; }
+        .status-processing { background: #e6f7ff; color: #1890ff; }
+        .status-resolved { background: #f6ffed; color: #52c41a; }
+        .status-rejected { background: #fff1f0; color: #ff4d4f; }
+        .status-accepted { background: #e6f7ff; color: #1890ff; }
+        .filter-bar { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+        .filter-bar select, .filter-bar input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; }
+        .modal.show { display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; border-radius: 8px; padding: 24px; max-width: 500px; width: 90%; max-height: 90vh; overflow-y: auto; }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .modal-header h3 { font-size: 18px; color: #333; }
+        .modal-close { background: none; border: none; font-size: 24px; cursor: pointer; color: #999; }
+        .empty-state { text-align: center; padding: 40px; color: #999; }
+        .detail-row { display: flex; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }
+        .detail-label { width: 100px; color: #666; }
+        .detail-value { flex: 1; color: #333; }
+        .loading { text-align: center; padding: 20px; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <h1>工单登记处理系统</h1>
+        <div class="nav" id="salesNav">
+            <button class="active" onclick="showPanel('sales')">工单提交</button>
+            <button onclick="showPanel('history')">工单查看</button>
+        </div>
+        <div class="nav" id="aftersalesNav" style="display: none;">
+            <button class="active" onclick="showPanel('aftersales')">待处理工单</button>
+            <button onclick="showPanel('accepted')">已接入工单</button>
+            <button onclick="showPanel('history')">工单查看</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="path-selector">
+            <h2>选择访问路径</h2>
+            <div class="path-buttons">
+                <button class="active" onclick="switchPath('sales')">销售路径</button>
+                <button onclick="switchPath('aftersales')">售后路径</button>
+            </div>
+        </div>
+
+        <div id="salesPanel" class="panel active">
+            <h2>工单提交</h2>
+            <form id="orderForm">
+                <div class="form-group">
+                    <label>账号 *</label>
+                    <input type="text" name="account" required placeholder="请输入账号">
+                </div>
+                <div class="form-group">
+                    <label>密码 *</label>
+                    <input type="password" name="password" required placeholder="请输入密码">
+                </div>
+                <div class="form-group">
+                    <label>提交人 *</label>
+                    <input type="text" name="submitter" required placeholder="请输入提交人姓名">
+                </div>
+                <div class="form-group">
+                    <label>需要调试内容 *</label>
+                    <textarea name="debugContent" required placeholder="请详细描述需要调试的内容"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>设备类型 (可多选)</label>
+                    <div style="display: flex; gap: 30px; align-items: center; flex-wrap: nowrap;">
+                        <label style="display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                            <input type="checkbox" name="devices" value="小票机"> 小票机
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 5px; white-space: nowrap;">
+                            <input type="checkbox" name="devices" value="标签机"> 标签机
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>图片 (选填)</label>
+                    <input type="file" name="image" accept="image/*" placeholder="请上传需要调试位置的图片">
+                </div>
+                <button type="submit" class="btn btn-primary">提交工单</button>
+            </form>
+        </div>
+
+        <div id="aftersalesPanel" class="panel">
+            <h2>待处理工单</h2>
+            <div class="filter-bar">
+                <select id="filterStatus" onchange="loadOrders('aftersales', 1)">
+                    <option value="">全部状态</option>
+                    <option value="pending" selected>待处理</option>
+                    <option value="accepted">已接入</option>
+                    <option value="processing">处理中</option>
+                    <option value="resolved">已解决</option>
+                    <option value="rejected">已驳回</option>
+                </select>
+                <input type="text" id="filterSubmitter" oninput="debounceLoadOrders('aftersales')" placeholder="提交人">
+                <input type="text" id="filterProcessor" oninput="debounceLoadOrders('aftersales')" placeholder="处理人">
+            </div>
+            <div id="aftersalesList" class="order-list"></div>
+        </div>
+
+        <div id="acceptedPanel" class="panel">
+            <h2>已接入工单</h2>
+            <div class="filter-bar">
+                <select id="acceptedStatus" onchange="loadOrders('accepted', 1)">
+                    <option value="">全部状态</option>
+                    <option value="accepted" selected>已接入</option>
+                    <option value="processing">处理中</option>
+                </select>
+                <input type="text" id="acceptedSubmitter" oninput="debounceLoadOrders('accepted')" placeholder="提交人">
+                <select id="acceptedProcessor" onchange="loadOrders('accepted', 1)">
+                    <option value="">全部处理人</option>
+                    <option value="李烽">李烽</option>
+                    <option value="张秋云">张秋云</option>
+                    <option value="林萍">林萍</option>
+                    <option value="吴晶晶">吴晶晶</option>
+                    <option value="王智洪">王智洪</option>
+                    <option value="黄心悦">黄心悦</option>
+                    <option value="周敏">周敏</option>
+                    <option value="关阳阳">关阳阳</option>
+                    <option value="李钏">李钏</option>
+                    <option value="刘立文">刘立文</option>
+                    <option value="张标威">张标威</option>
+                </select>
+            </div>
+            <div id="acceptedList" class="order-list"></div>
+        </div>
+
+        <div id="historyPanel" class="panel">
+            <h2>工单查看</h2>
+            <div class="filter-bar">
+                <select id="historyStatus" onchange="loadOrders('history', 1)">
+                    <option value="">全部状态</option>
+                    <option value="pending">待处理</option>
+                    <option value="accepted">已接入</option>
+                    <option value="processing">处理中</option>
+                    <option value="resolved">已解决</option>
+                    <option value="rejected">已驳回</option>
+                </select>
+                <input type="text" id="historySubmitter" oninput="debounceLoadOrders('history')" placeholder="提交人">
+                <input type="text" id="historyProcessor" oninput="debounceLoadOrders('history')" placeholder="处理人">
+                <input type="text" id="searchKeyword" placeholder="搜索账号/调试内容" oninput="debounceLoadOrders('history')">
+            </div>
+            <div id="historyList" class="order-list"></div>
+        </div>
+    </div>
+
+    <div id="processModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>处理工单</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <div id="detailModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>工单详情</h3>
+                <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+            </div>
+            <div id="detailContent"></div>
+        </div>
+    </div>
+
+    <div id="imageModal" class="modal">
+        <div class="modal-content" style="max-width: 90vw; max-height: 90vh; padding: 10px;">
+            <div class="modal-header">
+                <h3>图片查看</h3>
+                <button class="modal-close" onclick="closeImageModal()">&times;</button>
+            </div>
+            <div style="display: flex; justify-content: center; align-items: center; height: 80vh;">
+                <img id="modalImage" src="" style="max-width: 100%; max-height: 100%;" />
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Supabase配置 - 已更新为用户提供的配置
+        const supabaseUrl = 'https://tnxmzelnkwofkbhuabvg.supabase.co'; // 用户提供的Project URL
+        const supabaseKey = 'sb_publishable_0Vb5_fmi8c2NW0yV3FHkMg_4tYH-CUF'; // 用户提供的Publishable key
+        // 从window对象中获取createClient函数
+        const { createClient } = window.supabase;
+        const supabaseClient = createClient(supabaseUrl, supabaseKey);
+
+        let currentPath = 'sales';
+        let currentOrderId = null;
+        const PAGE_SIZE = 15;
+        let debounceTimers = {};
+        let orderPages = { aftersales: 1, accepted: 1, history: 1 };
+
+        async function generateOrderNumber() {
+            const now = new Date();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const datePrefix = month + day;
+
+            const { data, error } = await supabaseClient
+                .from('orders')
+                .select('ordernumber')
+                .like('ordernumber', `${datePrefix}%`)
+                .order('ordernumber', { ascending: false })
+                .limit(1);
+
+            let sequence = 1;
+            if (data && data.length > 0) {
+                const lastOrderNumber = data[0].ordernumber;
+                const lastSequence = parseInt(lastOrderNumber.slice(-3), 10);
+                sequence = lastSequence + 1;
+            }
+
+            return datePrefix + String(sequence).padStart(3, '0');
+        }
+
+        async function initTable() {
+            try {
+                const { data, error } = await supabaseClient
+                    .from('orders')
+                    .select('*')
+                    .limit(1);
+            } catch (error) {
+                console.log('表格可能不存在，将在首次提交时自动创建');
+            }
+        }
+
+        function getPathFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('path') || 'sales';
+        }
+
+        function initPath() {
+            const path = getPathFromUrl();
+            currentPath = path;
+            document.querySelector('.path-selector').style.display = 'none';
+            document.getElementById('salesNav').style.display = path === 'sales' ? 'flex' : 'none';
+            document.getElementById('aftersalesNav').style.display = path === 'aftersales' ? 'flex' : 'none';
+            if (path === 'sales') {
+                showPanel('sales');
+            } else {
+                showPanel('aftersales');
+            }
+        }
+
+        function switchPath(path) {
+            currentPath = path;
+            document.querySelectorAll('.path-buttons button').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('salesNav').style.display = path === 'sales' ? 'flex' : 'none';
+            document.getElementById('aftersalesNav').style.display = path === 'aftersales' ? 'flex' : 'none';
+            if (path === 'sales') {
+                showPanel('sales');
+            } else {
+                showPanel('aftersales');
+            }
+        }
+
+        function showPanel(panelName) {
+            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+            document.getElementById(panelName + 'Panel').classList.add('active');
+            if (event) {
+                event.target.classList.add('active');
+            } else {
+                const navId = currentPath + 'Nav';
+                const navButtons = document.getElementById(navId).querySelectorAll('button');
+                navButtons.forEach(button => {
+                    if (button.onclick.toString().includes(panelName)) {
+                        button.classList.add('active');
+                    }
+                });
+            }
+            loadOrders(panelName);
+        }
+
+        function getStatusText(status) {
+            const map = { 'pending': '待处理', 'processing': '处理中', 'accepted': '已接入', 'resolved': '已解决', 'rejected': '已驳回' };
+            return map[status] || status;
+        }
+
+        function getStatusClass(status) {
+            return 'status-' + status;
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            return new Date(dateStr).toLocaleString('zh-CN');
+        }
+
+        async function loadOrders(panelName, page = 1) {
+            orderPages[panelName] = page;
+            let statusFilter, submitterFilter, processorFilter, searchKeyword;
+
+            if (panelName === 'aftersales') {
+                statusFilter = document.getElementById('filterStatus').value;
+                submitterFilter = document.getElementById('filterSubmitter').value;
+                processorFilter = document.getElementById('filterProcessor').value;
+            } else if (panelName === 'accepted') {
+                statusFilter = document.getElementById('acceptedStatus').value;
+                submitterFilter = document.getElementById('acceptedSubmitter').value;
+                processorFilter = document.getElementById('acceptedProcessor').value;
+            } else if (panelName === 'history') {
+                statusFilter = document.getElementById('historyStatus').value;
+                submitterFilter = document.getElementById('historySubmitter').value;
+                processorFilter = document.getElementById('historyProcessor').value;
+                searchKeyword = document.getElementById('searchKeyword')?.value || '';
+            }
+
+            const container = document.getElementById(panelName + 'List');
+            container.innerHTML = '<div class="loading">加载中...</div>';
+
+            try {
+                let query = supabaseClient.from('orders').select('*', { count: 'exact' });
+
+                if (panelName === 'aftersales') {
+                    if (statusFilter) {
+                        query = query.eq('status', statusFilter);
+                    } else {
+                        query = query.eq('status', 'pending');
+                    }
+                    if (submitterFilter) {
+                        query = query.ilike('submitter', `%${submitterFilter}%`);
+                    }
+                    if (processorFilter) {
+                        query = query.ilike('processor', `%${processorFilter}%`);
+                    }
+                } else if (panelName === 'accepted') {
+                    if (statusFilter) {
+                        query = query.eq('status', statusFilter);
+                    } else {
+                        query = query.or(`status.eq.accepted,status.eq.processing`);
+                    }
+                    if (submitterFilter) {
+                        query = query.ilike('submitter', `%${submitterFilter}%`);
+                    }
+                    if (processorFilter) {
+                        query = query.eq('processor', processorFilter);
+                    }
+                } else if (panelName === 'history') {
+                    if (statusFilter) {
+                        query = query.eq('status', statusFilter);
+                    }
+                    if (submitterFilter) {
+                        query = query.ilike('submitter', `%${submitterFilter}%`);
+                    }
+                    if (processorFilter) {
+                        query = query.ilike('processor', `%${processorFilter}%`);
+                    }
+                    if (searchKeyword) {
+                        query = query.or(`account.ilike.%${searchKeyword}%,debugcontent.ilike.%${searchKeyword}%`);
+                    }
+                }
+
+                const from = (page - 1) * PAGE_SIZE;
+                const { data: orders, error, count } = await query
+                    .order('createdat', { ascending: false })
+                    .range(from, from + PAGE_SIZE - 1);
+
+                if (error) {
+                    console.error('加载工单失败:', error);
+                    container.innerHTML = `<div class="empty-state">加载失败，请刷新重试<br>错误信息: ${error.message || '未知错误'}</div>`;
+                    return;
+                }
+
+                const totalPages = Math.ceil((count || 0) / PAGE_SIZE);
+                renderOrders(panelName, orders || [], page, totalPages, count || 0);
+            } catch (error) {
+                console.error('加载工单失败:', error);
+                container.innerHTML = '<div class="empty-state">加载失败，请刷新重试</div>';
+            }
+        }
+
+        function renderOrders(panelName, orders, page, totalPages, totalCount) {
+            const container = document.getElementById(panelName + 'List');
+
+            if (orders.length === 0) {
+                container.innerHTML = '<div class="empty-state">暂无工单</div>';
+                return;
+            }
+
+            container.innerHTML = orders.map(order => `
+                <div class="order-item">
+                    <div class="order-header">
+                        <div class="order-left">
+                            <div class="order-title">${order.account || ''}</div>
+                            <div class="order-id">工单号: ${order.ordernumber || shortenOrderId(order.id)} | 提交人: ${order.submitter || '-'} | 处理人: ${order.processor || '-'}</div>
+                        </div>
+                        <div class="order-right">
+                            <span class="status-badge ${getStatusClass(order.status)}">${getStatusText(order.status)}</span>
+                            ${panelName !== 'history' && (order.status === 'pending' || order.status === 'accepted' || order.status === 'processing') ?
+                        `<button class="btn btn-success" onclick="showProcessModal('${order.id}')">处理</button>` : ''}
+                            <button class="btn btn-primary" onclick="showDetail('${order.id}')">查看详情</button>
+                        </div>
+                    </div>
+                    <div class="order-info">提交时间: ${formatDate(order.createdat)}</div>
+                    <div class="order-desc">${order.debugcontent || ''}</div>
+                </div>
+            `).join('') + renderPagination(panelName, page, totalPages, totalCount);
+        }
+
+        function renderPagination(panelName, page, totalPages, totalCount) {
+            if (totalPages <= 1) return '';
+
+            let paginationHtml = `<div class="pagination" style="display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 20px; padding: 15px 0;">`;
+            paginationHtml += `<span style="color: #666;">共 ${totalCount} 条</span>`;
+
+            if (page > 1) {
+                paginationHtml += `<button class="btn btn-primary" onclick="loadOrders('${panelName}', ${page - 1})">上一页</button>`;
+            }
+
+            paginationHtml += `<span style="color: #333;">第 ${page} / ${totalPages} 页</span>`;
+
+            if (page < totalPages) {
+                paginationHtml += `<button class="btn btn-primary" onclick="loadOrders('${panelName}', ${page + 1})">下一页</button>`;
+            }
+
+            paginationHtml += `</div>`;
+            return paginationHtml;
+        }
+
+        function debounceLoadOrders(panelName) {
+            const key = panelName;
+            if (debounceTimers[key]) {
+                clearTimeout(debounceTimers[key]);
+            }
+            debounceTimers[key] = setTimeout(() => {
+                orderPages[panelName] = 1;
+                loadOrders(panelName, 1);
+            }, 300);
+        }
+
+        document.getElementById('orderForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            submitBtn.disabled = true;
+            submitBtn.textContent = '提交中...';
+
+            const devices = formData.getAll('devices');
+            data.devices = devices.join(',');
+
+            let imageUrl = '';
+            const imageFile = formData.get('image');
+            if (imageFile && imageFile.name) {
+                try {
+                    if (imageFile.size > 10 * 1024 * 1024) {
+                        alert('图片大小不能超过10MB');
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '提交工单';
+                        return;
+                    }
+
+                    const { data: uploadData, error: uploadError } = await supabaseClient
+                        .storage
+                        .from('order-images')
+                        .upload(`${Date.now()}-${imageFile.name}`, imageFile, {
+                            cacheControl: '3600',
+                            upsert: false
+                        });
+
+                    if (uploadError) {
+                        console.error('上传错误:', uploadError);
+                        alert('图片上传失败: ' + uploadError.message);
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = '提交工单';
+                        return;
+                    }
+
+                    const { data: urlData } = supabaseClient
+                        .storage
+                        .from('order-images')
+                        .getPublicUrl(uploadData.path);
+
+                    imageUrl = urlData.publicUrl;
+                } catch (uploadError) {
+                    console.error('图片上传失败:', uploadError);
+                    alert('图片上传失败，请重试: ' + uploadError.message);
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '提交工单';
+                    return;
+                }
+            }
+
+            try {
+                const orderNumber = await generateOrderNumber();
+
+                const { data: newOrder, error } = await supabaseClient
+                    .from('orders')
+                    .insert({
+                        ordernumber: orderNumber,
+                        account: data.account,
+                        password: data.password,
+                        submitter: data.submitter,
+                        debugcontent: data.debugContent,
+                        devices: data.devices,
+                        image: imageUrl,
+                        status: 'pending',
+                        createdat: new Date().toISOString(),
+                        updatedat: new Date().toISOString()
+                    })
+                    .select()
+                    .single();
+
+                if (error) {
+                    if (error.message.includes('row-level security policy')) {
+                        alert('提交失败，请在Supabase控制台中修改orders表的行级安全策略，允许所有用户访问。');
+                    } else {
+                        alert('提交失败，请重试: ' + error.message);
+                    }
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = '提交工单';
+                    return;
+                }
+
+                alert('工单提交成功！工单号：' + orderNumber);
+                e.target.reset();
+                submitBtn.disabled = false;
+                submitBtn.textContent = '提交工单';
+            } catch (error) {
+                alert('提交失败，请重试: ' + error.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = '提交工单';
+            }
+        });
+
+        async function showProcessModal(orderId) {
+            currentOrderId = orderId;
+            try {
+                const { data: order, error } = await supabaseClient
+                    .from('orders')
+                    .select('*')
+                    .eq('id', orderId)
+                    .single();
+
+                if (error) {
+                    alert('加载工单失败');
+                    return;
+                }
+
+                document.getElementById('modalContent').innerHTML = `
+                    <div class="detail-row">
+                        <div class="detail-label">账号</div>
+                        <div class="detail-value">${order.account}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">密码</div>
+                        <div class="detail-value">${order.password}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">需要调试内容</div>
+                        <div class="detail-value">${order.debugcontent}</div>
+                    </div>
+                    <div class="form-group" style="margin-top: 20px;">
+                        <label>处理结果 *</label>
+                        <textarea id="processResult" required placeholder="请填写处理结果"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>处理状态 *</label>
+                        <select id="processStatus" required>
+                            <option value="accepted">已接入</option>
+                            <option value="processing">处理中</option>
+                            <option value="resolved">已解决</option>
+                            <option value="rejected">已驳回</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>处理人 *</label>
+                        <select id="processor" required>
+                            <option value="">请选择处理人</option>
+                            <option value="李烽">李烽</option>
+                            <option value="张秋云">张秋云</option>
+                            <option value="林萍">林萍</option>
+                            <option value="吴晶晶">吴晶晶</option>
+                            <option value="王智洪">王智洪</option>
+                            <option value="黄心悦">黄心悦</option>
+                            <option value="周敏">周敏</option>
+                            <option value="关阳阳">关阳阳</option>
+                            <option value="李钏">李钏</option>
+                            <option value="刘立文">刘立文</option>
+                            <option value="张标威">张标威</option>
+                        </select>
+                    </div>
+                    <div style="text-align: right; margin-top: 20px;">
+                        <button class="btn btn-primary" onclick="processOrder()">确认提交</button>
+                    </div>
+                `;
+                document.getElementById('processModal').classList.add('show');
+            } catch (error) {
+                alert('加载工单失败');
+            }
+        }
+
+        async function processOrder() {
+            const processResult = document.getElementById('processResult').value;
+            const processStatus = document.getElementById('processStatus').value;
+            const processor = document.getElementById('processor').value;
+
+            if (!processResult || !processStatus || !processor) {
+                alert('请填写所有必填字段');
+                return;
+            }
+
+            try {
+                const { error } = await supabaseClient
+                    .from('orders')
+                    .update({
+                        status: processStatus,
+                        processresult: processResult,
+                        processor: processor,
+                        processedat: new Date().toISOString(),
+                        updatedat: new Date().toISOString()
+                    })
+                    .eq('id', currentOrderId);
+
+                if (error) {
+                    alert('处理失败，请重试: ' + error.message);
+                    return;
+                }
+
+                alert('处理成功');
+                closeModal();
+                orderPages['aftersales'] = 1;
+                loadOrders('aftersales', 1);
+                if (currentPath === 'aftersales') {
+                    loadOrders('accepted', 1);
+                }
+            } catch (error) {
+                alert('处理失败，请重试: ' + error.message);
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('processModal').classList.remove('show');
+        }
+
+        async function showDetail(orderId) {
+            try {
+                const { data: order, error } = await supabaseClient
+                    .from('orders')
+                    .select('*')
+                    .eq('id', orderId)
+                    .single();
+
+                if (error) {
+                    alert('加载详情失败');
+                    return;
+                }
+
+                document.getElementById('detailContent').innerHTML = `
+                    <div class="detail-row">
+                        <div class="detail-label">工单编号</div>
+                        <div class="detail-value">${order.ordernumber || order.id}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">工单号</div>
+                        <div class="detail-value">${order.id}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">账号</div>
+                        <div class="detail-value">${order.account}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">密码</div>
+                        <div class="detail-value">${order.password}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">提交人</div>
+                        <div class="detail-value">${order.submitter || '-'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">需要调试内容</div>
+                        <div class="detail-value">${order.debugcontent}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">设备类型</div>
+                        <div class="detail-value">${order.devices ? order.devices : '无'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">图片</div>
+                        <div class="detail-value">${order.image ? `<img src="${order.image}" style="max-width: 100%; max-height: 200px; cursor: pointer;" onclick="showImageModal('${order.image}')" />` : '无'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">工单状态</div>
+                        <div class="detail-value"><span class="status-badge ${getStatusClass(order.status)}">${getStatusText(order.status)}</span></div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">提交时间</div>
+                        <div class="detail-value">${formatDate(order.createdat)}</div>
+                    </div>
+                    ${order.processResult ? `
+                    <div class="detail-row">
+                        <div class="detail-label">处理结果</div>
+                        <div class="detail-value">${order.processresult}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">处理人</div>
+                        <div class="detail-value">${order.processor || '-'}</div>
+                    </div>
+                    <div class="detail-row">
+                        <div class="detail-label">处理时间</div>
+                        <div class="detail-value">${formatDate(order.processedat)}</div>
+                    </div>
+                    ` : ''}
+                `;
+                document.getElementById('detailModal').classList.add('show');
+            } catch (error) {
+                alert('加载详情失败');
+            }
+        }
+
+        function closeDetailModal() {
+            document.getElementById('detailModal').classList.remove('show');
+        }
+
+        function showImageModal(imageUrl) {
+            document.getElementById('modalImage').src = imageUrl;
+            document.getElementById('imageModal').classList.add('show');
+        }
+
+        function closeImageModal() {
+            document.getElementById('imageModal').classList.remove('show');
+        }
+
+        // 简化工单号显示
+        function shortenOrderId(orderId) {
+            if (!orderId) return '';
+            return orderId.substring(0, 8) + '...';
+        }
+
+        // 初始化
+        window.onload = async function() {
+            await initTable();
+            initPath();
+        };
+    </script>
+</body>
+</html>
