@@ -146,8 +146,8 @@
             <h2>已接入工单</h2>
             <div class="filter-bar">
                 <select id="acceptedStatus" onchange="loadOrders('accepted', 1)">
-                    <option value="">全部状态</option>
-                    <option value="accepted" selected>已接入</option>
+                    <option value="" selected>全部状态</option>
+                    <option value="accepted">已接入</option>
                     <option value="processing">处理中</option>
                 </select>
                 <input type="text" id="acceptedSubmitter" oninput="debounceLoadOrders('accepted')" placeholder="提交人">
