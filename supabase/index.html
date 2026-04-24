@@ -496,10 +496,15 @@
                         return;
                     }
 
+                    // 处理文件名，只保留安全字符
+                    const safeFileName = imageFile.name
+                        .replace(/[^a-zA-Z0-9_\-\.]/g, '') // 移除特殊字符
+                        .replace(/\s+/g, '-'); // 空格替换为连字符
+                    
                     const { data: uploadData, error: uploadError } = await supabaseClient
                         .storage
                         .from('order-images')
-                        .upload(`${Date.now()}-${imageFile.name}`, imageFile, {
+                        .upload(`${Date.now()}-${safeFileName}`, imageFile, {
                             cacheControl: '3600',
                             upsert: false
                         });
