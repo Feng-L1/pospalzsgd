@@ -588,10 +588,12 @@
                         <div class="detail-label">账号</div>
                         <div class="detail-value">${order.account}</div>
                     </div>
+                    ${currentPath === 'aftersales' ? `
                     <div class="detail-row">
                         <div class="detail-label">密码</div>
                         <div class="detail-value">${order.password}</div>
                     </div>
+                    ` : ''}
                     <div class="detail-row">
                         <div class="detail-label">需要调试内容</div>
                         <div class="detail-value">${order.debugcontent}</div>
@@ -705,10 +707,12 @@
                         <div class="detail-label">账号</div>
                         <div class="detail-value">${order.account}</div>
                     </div>
+                    ${currentPath === 'aftersales' ? `
                     <div class="detail-row">
                         <div class="detail-label">密码</div>
                         <div class="detail-value">${order.password}</div>
                     </div>
+                    ` : ''}
                     <div class="detail-row">
                         <div class="detail-label">提交人</div>
                         <div class="detail-value">${order.submitter || '-'}</div>
